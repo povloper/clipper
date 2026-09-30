@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Copy,
+  Plus,
   Scissors,
   Trash2,
   ZoomIn,
@@ -14,8 +15,11 @@ import { Label } from "@/components/ui/label";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import {
+  addColdOpen as addColdOpenSegment,
   clamp,
+  COLD_OPEN_SEGMENT_ID,
   editDuration,
+  removeColdOpen,
   splitSegment,
   timecode,
   uid,
@@ -47,6 +51,20 @@ export function Timeline({
 }: Props) {
   const [zoom, setZoom] = useState(1);
   const active = doc.segments[index] ?? doc.segments[0];
+  const coldOpen = asset.coldOpen;
+  const coldOpenIndex = doc.segments.findIndex(
+    (segment) => segment.id === COLD_OPEN_SEGMENT_ID,
+  );
+  const coldOpenActive = coldOpenIndex >= 0;
+  const mainSegments = doc.segments.filter(
+    (segment) => segment.id !== COLD_OPEN_SEGMENT_ID,
+  );
+  const activateColdOpen = () => {
+    if (!coldOpen || coldOpenActive) return;
+    update((d) => addColdOpenSegment(d, coldOpen));
+    select(0);
+    seek(coldOpen.start);
+  };
   const setRange = (start: number, end: number) =>
     update(
       (d) => ({
@@ -66,6 +84,8 @@ export function Timeline({
   const move = (direction: number) => {
     const target = index + direction;
     if (target < 0 || target >= doc.segments.length) return;
+    if (active.id === COLD_OPEN_SEGMENT_ID) return;
+    if (direction < 0 && doc.segments[target]?.id === COLD_OPEN_SEGMENT_ID) return;
     update((d) => {
       const segments = [...d.segments];
       [segments[index], segments[target]] = [segments[target], segments[index]];
@@ -74,7 +94,9 @@ export function Timeline({
     select(target);
   };
   const canSplit =
-    currentTime > active.start + 0.04 && currentTime < active.end - 0.04;
+    active.id !== COLD_OPEN_SEGMENT_ID &&
+    currentTime > active.start + 0.04 &&
+    currentTime < active.end - 0.04;
   return (
     <Panel aria-label="Clip timeline">
       <PanelHeader
@@ -279,33 +301,59 @@ export function Timeline({
           role="group"
           aria-label="Segments"
         >
-          {doc.segments.map((s, i) => (
+          {coldOpen && !coldOpenActive && (
             <button
-              key={s.id}
-              className={cn(
-                "rounded-md border bg-background px-2.5 py-1.5 text-left text-xs shadow-xs transition-colors outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50",
-                i === index && "border-primary ring-1 ring-primary",
-              )}
-              aria-pressed={i === index}
-              onClick={() => {
-                select(i);
-                seek(s.start);
-              }}
+              className="rounded-md border border-dashed bg-background px-2.5 py-1.5 text-left text-xs shadow-xs transition-colors outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              onClick={activateColdOpen}
             >
-              <span className="block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                Segment {i + 1}
+              <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                <Plus className="size-3" aria-hidden />
+                Suggested hook
               </span>
               <span className="block tabular-nums">
-                {timecode(s.start)} – {timecode(s.end)}
+                {timecode(coldOpen.start)} – {timecode(coldOpen.end)}
               </span>
             </button>
-          ))}
+          )}
+          {doc.segments.map((s, i) => {
+            const label =
+              s.id === COLD_OPEN_SEGMENT_ID
+                ? "Hook"
+                : s.id === "original"
+                  ? "Main clip"
+                  : `Segment ${i + 1}`;
+            return (
+              <button
+                key={s.id}
+                className={cn(
+                  "rounded-md border bg-background px-2.5 py-1.5 text-left text-xs shadow-xs transition-colors outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50",
+                  i === index && "border-primary ring-1 ring-primary",
+                )}
+                aria-pressed={i === index}
+                onClick={() => {
+                  select(i);
+                  seek(s.start);
+                }}
+              >
+                <span className="block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {label}
+                </span>
+                <span className="block tabular-nums">
+                  {timecode(s.start)} – {timecode(s.end)}
+                </span>
+              </button>
+            );
+          })}
         </div>
         <div className="flex items-center">
           <ToolButton
             label="Move segment earlier"
             size="icon-sm"
-            disabled={index === 0}
+            disabled={
+              index === 0 ||
+              active.id === COLD_OPEN_SEGMENT_ID ||
+              doc.segments[index - 1]?.id === COLD_OPEN_SEGMENT_ID
+            }
             onClick={() => move(-1)}
           >
             <ArrowLeft />
@@ -313,7 +361,9 @@ export function Timeline({
           <ToolButton
             label="Move segment later"
             size="icon-sm"
-            disabled={index >= doc.segments.length - 1}
+            disabled={
+              active.id === COLD_OPEN_SEGMENT_ID || index >= doc.segments.length - 1
+            }
             onClick={() => move(1)}
           >
             <ArrowRight />
@@ -321,6 +371,7 @@ export function Timeline({
           <ToolButton
             label="Duplicate selected segment"
             size="icon-sm"
+            disabled={active.id === COLD_OPEN_SEGMENT_ID}
             onClick={() =>
               update((d) => ({
                 ...d,
@@ -338,12 +389,19 @@ export function Timeline({
             label="Remove selected segment"
             size="icon-sm"
             className="hover:text-destructive"
-            disabled={doc.segments.length === 1}
+            disabled={
+              doc.segments.length === 1 ||
+              (active.id !== COLD_OPEN_SEGMENT_ID && mainSegments.length === 1)
+            }
             onClick={() => {
-              update((d) => ({
-                ...d,
-                segments: d.segments.filter((s) => s.id !== active.id),
-              }));
+              update((d) =>
+                active.id === COLD_OPEN_SEGMENT_ID
+                  ? removeColdOpen(d)
+                  : {
+                      ...d,
+                      segments: d.segments.filter((s) => s.id !== active.id),
+                    },
+              );
               select(Math.max(0, index - 1));
             }}
           >

@@ -4,6 +4,12 @@ import { mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { draft } from "../src/lib/editor/document.test-fixture";
 
+type ExportRequest = {
+  document: {
+    segments: Array<{ id: string; start: number; end: number }>;
+  };
+};
+
 const generation = {
   id: "one",
   user_id: "user",
@@ -21,6 +27,7 @@ const clips = [1, 2].map((n) => ({
   video_url: `/tasks/one/clips/clip${n}/file`,
 }));
 const mediaPath = path.resolve("test-results/studio-source.mp4");
+const coldOpenMediaPath = path.resolve("test-results/studio-cold-open-source.mp4");
 test.beforeAll(() => {
   mkdirSync(path.dirname(mediaPath), { recursive: true });
   execFileSync("ffmpeg", [
@@ -45,10 +52,44 @@ test.beforeAll(() => {
     "+faststart",
     mediaPath,
   ]);
+  execFileSync("ffmpeg", [
+    "-v",
+    "error",
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    "testsrc2=size=640x360:rate=24:duration=4",
+    "-f",
+    "lavfi",
+    "-i",
+    "sine=frequency=550:sample_rate=48000:duration=4",
+    "-c:v",
+    "libx264",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-movflags",
+    "+faststart",
+    coldOpenMediaPath,
+  ]);
 });
-async function setup(page: Page, failSave = false) {
+async function setup(page: Page, failSave = false, coldOpen = false) {
+  const initialDocument = structuredClone(draft);
+  if (coldOpen) {
+    initialDocument.segments = [{ id: "original", start: 1, end: 4 }];
+    initialDocument.words = initialDocument.words.map((word) => ({
+      ...word,
+      start: word.start + 1,
+      end: word.end + 1,
+    }));
+  }
   const documents = new Map(
-    clips.map((c) => [c.id, { revision: 0, document: structuredClone(draft) }]),
+    clips.map((c) => [
+      c.id,
+      { revision: 0, document: structuredClone(initialDocument) },
+    ]),
   );
   await page.route("**/api/auth/get-session**", (r) =>
     r.fulfill({
@@ -107,7 +148,7 @@ async function setup(page: Page, failSave = false) {
       json: {
         status: "ready",
         basis: `${id}.mp4`,
-        duration: 3,
+        duration: coldOpen ? 4 : 3,
         width: 640,
         height: 360,
         fps: 24,
@@ -116,14 +157,15 @@ async function setup(page: Page, failSave = false) {
           { length: 160 },
           (_, i) => 0.2 + Math.abs(Math.sin(i)) * 0.6,
         ),
+        ...(coldOpen ? { coldOpen: { start: 0, end: 1 } } : {}),
         draft: saved,
-        original: draft,
+        original: initialDocument,
         jobs: [],
       },
     });
   });
   await page.route("**/editor/media/clean.mp4", (r) => {
-    const bytes = readFileSync(mediaPath),
+    const bytes = readFileSync(coldOpen ? coldOpenMediaPath : mediaPath),
       range = r
         .request()
         .headers()
@@ -204,6 +246,105 @@ test("failed saves retain local edits after reload", async ({ page }) => {
   await expect(page.getByLabel("Word 1", { exact: true })).toHaveValue("Hello");
 });
 
+test("cold open activation and removal survive autosave and reload", async ({
+  page,
+}) => {
+  const documents = await setup(page, false, true);
+  const segments = page.getByRole("group", { name: "Segments" });
+  const suggestedHook = segments
+    .getByRole("button")
+    .filter({ hasText: "Suggested hook" });
+
+  await expect(suggestedHook).toBeVisible();
+  await expect(
+    segments.getByRole("button").filter({ hasText: "Main clip" }),
+  ).toBeVisible();
+
+  await suggestedHook.click();
+  await expect(
+    segments.getByRole("button").filter({ hasText: /^Hook/ }),
+  ).toBeVisible();
+  await expect(suggestedHook).toHaveCount(0);
+  await expect
+    .poll(() => documents.get("clip1")?.document.segments.map((s) => s.id))
+    .toEqual(["cold-open", "original"]);
+
+  await page.reload();
+  await expect(
+    page
+      .getByRole("group", { name: "Segments" })
+      .getByRole("button")
+      .filter({ hasText: /^Hook/ }),
+  ).toBeVisible();
+
+  await page
+    .getByRole("group", { name: "Segments" })
+    .getByRole("button")
+    .filter({ hasText: /^Hook/ })
+    .click();
+  await page.getByRole("button", { name: "Remove selected segment" }).click();
+  await expect
+    .poll(() => documents.get("clip1")?.document.segments.map((s) => s.id))
+    .toEqual(["original"]);
+
+  await page.reload();
+  await expect(
+    page
+      .getByRole("group", { name: "Segments" })
+      .getByRole("button")
+      .filter({ hasText: "Suggested hook" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("group", { name: "Segments" })
+      .getByRole("button")
+      .filter({ hasText: /^Hook/ }),
+  ).toHaveCount(0);
+});
+
+test("background export omits an inactive cold open proposal", async ({
+  page,
+}) => {
+  await setup(page, false, true);
+  let request: ExportRequest | undefined;
+  await page.route("**/editor/exports", (r) => {
+    request = r.request().postDataJSON() as ExportRequest;
+    return r.fulfill({ json: { id: "job", status: "queued", progress: 0 } });
+  });
+
+  await page.getByRole("button", { name: "Export", exact: true }).click();
+  await page.getByRole("button", { name: "Export clip", exact: true }).click();
+  await expect.poll(() => request).toBeTruthy();
+  expect(request?.document.segments).toEqual([
+    { id: "original", start: 1, end: 4 },
+  ]);
+});
+
+test("background export includes the cold open after activation", async ({
+  page,
+}) => {
+  await setup(page, false, true);
+  const segments = page.getByRole("group", { name: "Segments" });
+  await segments
+    .getByRole("button")
+    .filter({ hasText: "Suggested hook" })
+    .click();
+
+  let request: ExportRequest | undefined;
+  await page.route("**/editor/exports", (r) => {
+    request = r.request().postDataJSON() as ExportRequest;
+    return r.fulfill({ json: { id: "job", status: "queued", progress: 0 } });
+  });
+
+  await page.getByRole("button", { name: "Export", exact: true }).click();
+  await page.getByRole("button", { name: "Export clip", exact: true }).click();
+  await expect.poll(() => request).toBeTruthy();
+  expect(request?.document.segments).toEqual([
+    { id: "cold-open", start: 0, end: 1 },
+    { id: "original", start: 1, end: 4 },
+  ]);
+});
+
 test("splits and restores non-destructively with keyboard and precise trim", async ({
   page,
 }) => {
@@ -232,7 +373,7 @@ test("background export sends the complete edited document", async ({
   await setup(page);
   let request: Record<string, unknown> | undefined;
   await page.route("**/editor/exports", (r) => {
-    request = r.request().postDataJSON();
+    request = r.request().postDataJSON() as ExportRequest;
     return r.fulfill({ json: { id: "job", status: "queued", progress: 0 } });
   });
   await page.getByLabel("Word 1", { exact: true }).fill("Edited");
@@ -285,6 +426,33 @@ test("preview, caption dragging and responsive layout", async ({
     path: info.outputPath("studio-mobile.png"),
     fullPage: true,
   });
+});
+
+test("browser export includes an activated cold open in the rendered duration", async ({
+  page,
+}, info) => {
+  await setup(page, false, true);
+  const segments = page.getByRole("group", { name: "Segments" });
+  await segments
+    .getByRole("button")
+    .filter({ hasText: "Suggested hook" })
+    .click();
+
+  await page.getByRole("button", { name: "Export", exact: true }).click();
+  await page.getByRole("button", { name: /On this device/ }).click();
+  const downloadPromise = page.waitForEvent("download", { timeout: 60000 });
+  await page.getByRole("button", { name: "Export clip", exact: true }).click();
+  const file = info.outputPath("cold-open-browser-export.mp4");
+  await (await downloadPromise).saveAs(file);
+
+  const probe = JSON.parse(
+    execFileSync(
+      "ffprobe",
+      ["-v", "error", "-show_format", "-of", "json", file],
+      { encoding: "utf8" },
+    ),
+  );
+  expect(Number(probe.format.duration)).toBeCloseTo(4, 1);
 });
 
 test("browser export contains edited video and audio through multiple cuts", async ({

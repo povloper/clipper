@@ -253,6 +253,7 @@ def render_source_ranges_ffmpeg(
     video_path: Path,
     keep_ranges: List[Tuple[float, float]],
     output_path: Path,
+    crossfade: bool = True,
 ) -> bool:
     """Render source ranges into one intermediate clip using ffmpeg only."""
     keep_ranges = normalize_source_ranges(keep_ranges)
@@ -292,7 +293,7 @@ def render_source_ranges_ffmpeg(
 
     # Smooth a handful of substantial internal cuts with crossfades; fall back to
     # a hard concat for many tiny fragments (heavy filler edits) or on failure.
-    if crossfade_fade_for_ranges(keep_ranges) > 0:
+    if crossfade and crossfade_fade_for_ranges(keep_ranges) > 0:
         if render_ranges_crossfade_ffmpeg(
             video_path, keep_ranges, output_path, has_audio
         ):

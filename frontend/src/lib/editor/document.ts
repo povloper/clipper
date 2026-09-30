@@ -60,10 +60,12 @@ export interface EditorState {
   fps: number;
   hasAudio: boolean;
   waveform: number[];
+  coldOpen?: { start: number; end: number };
   draft: { revision: number; document: EditDocument };
   original: EditDocument;
   jobs: ExportJob[];
 }
+export const COLD_OPEN_SEGMENT_ID = "cold-open";
 export const DEFAULT_EFFECTS: Effects = {
   brightness: 100,
   contrast: 100,
@@ -78,6 +80,41 @@ export const editDuration = (doc: EditDocument) =>
 export const timecode = (time: number) =>
   `${Math.floor(Math.max(0, time) / 60)}:${(Math.max(0, time) % 60).toFixed(2).padStart(5, "0")}`;
 export const uid = () => crypto.randomUUID();
+export function addColdOpen(
+  doc: EditDocument,
+  proposal?: { start: number; end: number },
+): EditDocument {
+  if (
+    !proposal ||
+    proposal.end <= proposal.start ||
+    doc.segments.some((segment) => segment.id === COLD_OPEN_SEGMENT_ID)
+  )
+    return doc;
+
+  return {
+    ...doc,
+    segments: [
+      {
+        id: COLD_OPEN_SEGMENT_ID,
+        start: proposal.start,
+        end: proposal.end,
+      },
+      ...doc.segments,
+    ],
+  };
+}
+
+export function removeColdOpen(doc: EditDocument): EditDocument {
+  if (!doc.segments.some((segment) => segment.id === COLD_OPEN_SEGMENT_ID))
+    return doc;
+  return {
+    ...doc,
+    segments: doc.segments.filter(
+      (segment) => segment.id !== COLD_OPEN_SEGMENT_ID,
+    ),
+  };
+}
+
 export function outputSize(doc: EditDocument, width: number, height: number) {
   if (doc.framing.aspect === "vertical") return { width: 1080, height: 1920 };
   if (doc.framing.aspect === "square") return { width: 1080, height: 1080 };

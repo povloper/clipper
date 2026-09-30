@@ -1,16 +1,39 @@
 import { describe, expect, it } from "vitest";
 import {
+  addColdOpen,
   captionGroups,
   editDuration,
   frameRect,
   mappedWords,
   outputSize,
+  removeColdOpen,
   replaceWords,
   splitSegment,
 } from "./document";
 import { draft } from "./document.test-fixture";
 
 describe("non-destructive edits", () => {
+  it("adds and removes the cold open as a separate leading segment", () => {
+    const main = {
+      ...draft,
+      segments: [{ id: "original", start: 1.5, end: 4.5 }],
+    };
+    const withHook = addColdOpen(main, { start: 0, end: 1.5 });
+
+    expect(withHook.segments).toEqual([
+      { id: "cold-open", start: 0, end: 1.5 },
+      { id: "original", start: 1.5, end: 4.5 },
+    ]);
+    expect(editDuration(withHook)).toBeCloseTo(4.5);
+    expect(addColdOpen(withHook, { start: 0, end: 1.5 })).toBe(withHook);
+
+    const withoutHook = removeColdOpen(withHook);
+    expect(withoutHook.segments).toEqual(main.segments);
+    expect(removeColdOpen(withoutHook)).toBe(withoutHook);
+    expect(main.segments).toEqual([
+      { id: "original", start: 1.5, end: 4.5 },
+    ]);
+  });
   it("splits without changing duration or original state", () => {
     const next = splitSegment(draft, 0, 1.1);
     expect(next.segments).toHaveLength(2);

@@ -519,7 +519,9 @@ def build_keep_ranges_from_source_ranges(
 
 
 def get_words_for_keep_ranges(
-    transcript_data: Dict, keep_ranges: List[Tuple[float, float]]
+    transcript_data: Dict,
+    keep_ranges: List[Tuple[float, float]],
+    crossfade: bool = True,
 ) -> List[Dict[str, Any]]:
     """Project transcript word timings into the output timeline after cuts.
 
@@ -531,7 +533,7 @@ def get_words_for_keep_ranges(
     if not transcript_data or not transcript_data.get("words") or not keep_ranges:
         return []
 
-    fade = crossfade_fade_for_ranges(keep_ranges)
+    fade = crossfade_fade_for_ranges(keep_ranges) if crossfade else 0.0
     relevant_words: List[Dict[str, Any]] = []
     timeline_offset = 0.0
 

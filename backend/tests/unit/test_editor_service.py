@@ -9,7 +9,12 @@ from unittest.mock import AsyncMock
 import pytest
 
 from src.editor_document import EditDocument, atomic_json, editor_dir
-from src.services.editor_service import combine_editor, prepare_editor, read_state
+from src.services.editor_service import (
+    _build_editor_ranges,
+    combine_editor,
+    prepare_editor,
+    read_state,
+)
 
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg required")
@@ -129,3 +134,28 @@ async def test_prepare_failure_is_recoverable(tmp_path, monkeypatch):
     await prepare_editor({}, "task", "missing", "missing.mp4")
     state = read_state(editor_dir(str(tmp_path), "task", "missing", "missing.mp4"))
     assert state["status"] == "failed"
+
+
+
+def test_editor_ranges_prepend_valid_cold_open_without_changing_main_ranges():
+    ranges, duration = _build_editor_ranges(
+        [(10.0, 15.0), (16.0, 20.0)],
+        12.0,
+        13.5,
+    )
+
+    assert duration == pytest.approx(1.5)
+    assert ranges == [(12.0, 13.5), (10.0, 15.0), (16.0, 20.0)]
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [(None, None), (12.0, 15.0), (-1.0, 0.5), ("bad", 13.0)],
+)
+def test_editor_ranges_ignore_invalid_cold_open(start, end):
+    original = [(10.0, 15.0), (16.0, 20.0)]
+
+    ranges, duration = _build_editor_ranges(original, start, end)
+
+    assert duration == 0.0
+    assert ranges == original

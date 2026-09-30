@@ -46,6 +46,16 @@ jobs:
       BACKEND_AUTH_SECRET: supoclip_test_secret
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check whitespace errors
+        shell: bash
+        run: |
+          if [ -n "$GITHUB_BASE_REF" ]; then
+            git diff --check "origin/$GITHUB_BASE_REF"...HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -56,6 +66,8 @@ jobs:
           sudo apt-get install --yes --no-install-recommends ffmpeg
       - name: Install backend dependencies
         run: cd backend && uv sync --all-groups
+      - name: Compile backend Python
+        run: cd backend && .venv/bin/python -m compileall -q src tests
       - name: Run backend tests
         run: cd backend && .venv/bin/pytest
 
@@ -132,14 +144,22 @@ jobs:
           node-version: "20"
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Install media test dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Install backend dependencies
         run: cd backend && uv sync --all-groups
       - name: Install frontend dependencies
         run: cd frontend && pnpm install --frozen-lockfile
+      - name: Validate Prisma migrations
+        run: cd frontend && pnpm exec prisma migrate deploy
+      - name: Build production frontend
+        run: cd frontend && pnpm run build
       - name: Install Playwright browsers
         run: cd frontend && pnpm exec playwright install --with-deps
       - name: Run Playwright smoke tests
         run: cd frontend && pnpm run test:e2e
+      - name: Run isolated editor and polish browser tests
+        run: cd frontend && pnpm run test:polish
       - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@v4

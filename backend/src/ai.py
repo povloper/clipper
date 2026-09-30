@@ -29,7 +29,7 @@ IDEAL_CLIP_MIN_SECONDS = 25
 IDEAL_CLIP_MAX_SECONDS = 50
 MIN_ACCEPTED_CLIP_SECONDS = 15
 MAX_ACCEPTED_CLIP_SECONDS = 60
-TRANSCRIPT_ANALYSIS_CACHE_VERSION = "hook-titles-v5-grounded"
+TRANSCRIPT_ANALYSIS_CACHE_VERSION = "cold-open-v1-hook-titles-v5-grounded"
 TRANSCRIPT_ANALYSIS_MAX_ATTEMPTS = 3
 TRANSCRIPT_ANALYSIS_TIMEOUT_SECONDS = 600
 TRANSIENT_MODEL_STATUS_CODES = {408, 429, 500, 502, 503, 504, 529}
@@ -137,6 +137,13 @@ def _default_virality_analysis() -> ViralityAnalysis:
     return ViralityAnalysis()
 
 
+class ColdOpenProposal(BaseModel):
+    """Editable visual cold-open proposal for a selected clip."""
+
+    start_time: str = Field(description="Cold-open start timestamp in MM:SS format")
+    end_time: str = Field(description="Cold-open end timestamp in MM:SS format")
+
+
 class TranscriptSegment(BaseModel):
     """Represents a relevant segment of transcript with precise timing and virality analysis."""
 
@@ -170,6 +177,14 @@ class TranscriptSegment(BaseModel):
         description=(
             "Short punchy on-screen title for the clip (3-9 words). Grounded in "
             "the segment content, no hashtags, no emojis, no surrounding quotes."
+        ),
+    )
+    cold_open: Optional[ColdOpenProposal] = Field(
+        default=None,
+        description=(
+            "Optional 1-2 second visual cold-open proposal selected from within "
+            "this segment. It is stored as editable metadata and is not burned "
+            "into the initially generated clip."
         ),
     )
 
@@ -242,7 +257,7 @@ OUTPUT CONTRACT:
 - Return valid JSON only. Do not output Markdown, headings, bullets, prose, code fences, explanations, or commentary outside the JSON object.
 - The top-level JSON object must include: "most_relevant_segments", "summary", and "key_topics".
 - Set "broll_opportunities" to null when B-roll was not requested.
-- Each item in "most_relevant_segments" must include: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", and "hook_title".
+- Each item in "most_relevant_segments" must include: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", "hook_title", and "cold_open".
 - Do not use "segment" as an output field. Use "text".
 - "virality" must include: "hook_score", "engagement_score", "value_score", "shareability_score", "total_score", "hook_type", and "virality_reasoning".
 - Every returned segment must be 15-60 seconds long. Prefer 25-50 seconds.
@@ -328,6 +343,16 @@ HOOK TYPES to identify:
 - "story": Starts with narrative/anecdote
 - "contrast": Before/after or problem/solution framing
 - "none": No clear hook pattern
+
+COLD OPEN PROPOSAL ("cold_open" per segment):
+- Pick one especially potent visual/spoken moment from inside the selected segment that can play before the main clip as a cold open
+- The cold open must be 1-2 seconds long
+- It must be fully contained within the selected segment: cold_open.start_time >= start_time and cold_open.end_time <= end_time
+- It must refer to a real moment from the provided transcript range; do not invent dialogue or use material outside the segment
+- Prefer a surprising phrase, emotional reaction, punchline, reveal, strong claim, or high-energy beat that creates immediate curiosity
+- This is only an editable proposal. It is NOT part of the initial rendered clip and must not change the segment's start_time/end_time
+- Return "cold_open": {"start_time": "MM:SS", "end_time": "MM:SS"} for a usable proposal, or null if there is no credible 1-2 second hook
+- cold_open timestamps may use second-level positions inside a transcript span; unlike the main segment boundaries, they do not need to match a transcript line boundary exactly
 
 B-ROLL OPPORTUNITIES:
 Identify 2-4 moments in each segment where B-roll footage could enhance the video:
@@ -530,7 +555,8 @@ Follow this workflow:
 1. Read the transcript as a sequence of timestamped spans.
 2. Select only contiguous ranges that already exist in the transcript.
 3. Prefer moments with a strong hook, clear payoff, emotional charge, or concrete value.
-4. For each chosen segment, use the earliest timestamp in the selected range as start_time and the latest timestamp in the selected range as end_time.{broll_instruction}
+4. For each chosen segment, use the earliest timestamp in the selected range as start_time and the latest timestamp in the selected range as end_time.
+5. For each chosen segment, propose a 1-2 second cold_open from a real moment inside that same selected range.{broll_instruction}
 
 Selection target:
 - Choose 2-5 segments total.
@@ -554,8 +580,10 @@ JSON-only output requirements:
 - Return one valid JSON object and nothing else.
 - No Markdown, headings, bullets, code fences, or explanatory text outside JSON.
 - Top-level keys: "most_relevant_segments", "summary", "key_topics", "broll_opportunities".{' Set "broll_opportunities" to null.' if not include_broll else ''}
-- Segment keys: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", "hook_title".
+- Segment keys: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", "hook_title", "cold_open".
 - "hook_title" is a 3-9 word plain-text headline for the clip, grounded in the segment (no hashtags, emojis, or quotes).
+- "cold_open" must be null or an object with exactly "start_time" and "end_time".
+- A non-null cold_open must last 1-2 seconds and remain fully inside the segment.
 - Virality keys: "hook_score", "engagement_score", "value_score", "shareability_score", "total_score", "hook_type", "virality_reasoning".
 - Do not return segments shorter than {MIN_ACCEPTED_CLIP_SECONDS} seconds or longer than {MAX_ACCEPTED_CLIP_SECONDS} seconds.
 
@@ -931,6 +959,37 @@ async def get_most_relevant_parts_by_transcript(
                         segment.virality.total_score = calculated_total
 
                 segment.hook_title = sanitize_hook_title(segment.hook_title)
+
+                if segment.cold_open is not None:
+                    try:
+                        cold_open_start = _parse_transcript_timestamp_seconds(
+                            segment.cold_open.start_time
+                        )
+                        cold_open_end = _parse_transcript_timestamp_seconds(
+                            segment.cold_open.end_time
+                        )
+                        cold_open_duration = cold_open_end - cold_open_start
+                        cold_open_valid = (
+                            1 <= cold_open_duration <= 2
+                            and cold_open_start >= start_seconds
+                            and cold_open_end <= end_seconds
+                        )
+                        if not cold_open_valid:
+                            logger.warning(
+                                "Discarding invalid cold-open proposal %s-%s for segment %s-%s",
+                                segment.cold_open.start_time,
+                                segment.cold_open.end_time,
+                                segment.start_time,
+                                segment.end_time,
+                            )
+                            segment.cold_open = None
+                    except (ValueError, IndexError):
+                        logger.warning(
+                            "Discarding cold-open proposal with invalid timestamps for segment %s-%s",
+                            segment.start_time,
+                            segment.end_time,
+                        )
+                        segment.cold_open = None
 
                 validated_segments.append(segment)
                 virality_info = (

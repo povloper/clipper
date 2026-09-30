@@ -38,6 +38,8 @@ class ClipRepository:
         shareability_score: int = 0,
         hook_type: Optional[str] = None,
         hook_title: Optional[str] = None,
+        cold_open_start: Optional[float] = None,
+        cold_open_end: Optional[float] = None,
     ) -> str:
         """Create a new clip record and return its ID."""
         base_params = {
@@ -61,12 +63,12 @@ class ClipRepository:
                         (id, task_id, filename, file_path, start_time, end_time, duration,
                          text, relevance_score, reasoning, clip_order,
                          virality_score, hook_score, engagement_score, value_score, shareability_score, hook_type,
-                         hook_title, created_at)
+                         hook_title, cold_open_start, cold_open_end, created_at)
                         VALUES
                         (:id, :task_id, :filename, :file_path, :start_time, :end_time, :duration,
                          :text, :relevance_score, :reasoning, :clip_order,
                          :virality_score, :hook_score, :engagement_score, :value_score, :shareability_score, :hook_type,
-                         :hook_title, NOW())
+                         :hook_title, :cold_open_start, :cold_open_end, NOW())
                         ON CONFLICT (task_id, clip_order) DO UPDATE SET
                             filename = EXCLUDED.filename,
                             file_path = EXCLUDED.file_path,
@@ -83,6 +85,8 @@ class ClipRepository:
                             shareability_score = EXCLUDED.shareability_score,
                             hook_type = EXCLUDED.hook_type,
                             hook_title = EXCLUDED.hook_title,
+                            cold_open_start = EXCLUDED.cold_open_start,
+                            cold_open_end = EXCLUDED.cold_open_end,
                             updated_at = NOW()
                         RETURNING id
                     """),
@@ -95,6 +99,8 @@ class ClipRepository:
                         "shareability_score": shareability_score,
                         "hook_type": hook_type,
                         "hook_title": hook_title,
+                        "cold_open_start": cold_open_start,
+                        "cold_open_end": cold_open_end,
                     },
                 )
         except DBAPIError as exc:
@@ -138,7 +144,7 @@ class ClipRepository:
                         SELECT id, filename, file_path, start_time, end_time, duration,
                                text, relevance_score, reasoning, clip_order, created_at,
                                virality_score, hook_score, engagement_score, value_score, shareability_score, hook_type,
-                               hook_title
+                               hook_title, cold_open_start, cold_open_end
                         FROM generated_clips
                         WHERE task_id = :task_id
                         ORDER BY clip_order ASC
@@ -182,6 +188,8 @@ class ClipRepository:
                     "shareability_score": getattr(row, "shareability_score", 0) or 0,
                     "hook_type": getattr(row, "hook_type", None),
                     "hook_title": getattr(row, "hook_title", None),
+                    "cold_open_start": getattr(row, "cold_open_start", None),
+                    "cold_open_end": getattr(row, "cold_open_end", None),
                 }
             )
 
@@ -233,7 +241,7 @@ class ClipRepository:
                         SELECT id, task_id, filename, file_path, start_time, end_time, duration,
                                text, relevance_score, reasoning, clip_order,
                                virality_score, hook_score, engagement_score, value_score, shareability_score, hook_type,
-                               hook_title, created_at
+                               hook_title, cold_open_start, cold_open_end, created_at
                         FROM generated_clips
                         WHERE id = :clip_id
                         """
@@ -277,6 +285,8 @@ class ClipRepository:
             "shareability_score": getattr(row, "shareability_score", 0) or 0,
             "hook_type": getattr(row, "hook_type", None),
             "hook_title": getattr(row, "hook_title", None),
+            "cold_open_start": getattr(row, "cold_open_start", None),
+            "cold_open_end": getattr(row, "cold_open_end", None),
             "created_at": row.created_at.isoformat(),
             "video_url": f"/tasks/{row.task_id}/clips/{row.id}/file",
         }

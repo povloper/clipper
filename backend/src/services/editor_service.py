@@ -107,6 +107,25 @@ def make_assets(directory: Path):
     }
 
 
+def _build_editor_ranges(ranges, cold_open_start=None, cold_open_end=None):
+    """Build the editor asset timeline without enabling the cold open by default."""
+    editor_ranges = list(ranges)
+    if cold_open_start is None or cold_open_end is None:
+        return editor_ranges, 0.0
+
+    try:
+        start = float(cold_open_start)
+        end = float(cold_open_end)
+    except (TypeError, ValueError):
+        return editor_ranges, 0.0
+
+    duration = end - start
+    if start < 0 or not 1 <= duration <= 2:
+        return editor_ranges, 0.0
+
+    return [(start, end), *editor_ranges], duration
+
+
 async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
     from ..database import AsyncSessionLocal
     from .task_service import TaskService
@@ -135,6 +154,11 @@ async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
             ):
                 raise ValueError("The original clip changed. Reopen the editor.")
             ranges = service._get_clip_source_ranges(clip)
+            editor_ranges, cold_open_duration = _build_editor_ranges(
+                ranges,
+                clip.get("cold_open_start"),
+                clip.get("cold_open_end"),
+            )
             source_url, source_type = task.get("source_url"), task.get("source_type")
             mode = task.get("processing_mode") or service.config.default_processing_mode
             cache = await service.cache_repo.get_cache(
@@ -162,28 +186,68 @@ async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
             rendered = await run_in_thread(
                 create_optimized_clip,
                 source,
-                ranges[0][0],
-                ranges[-1][1],
+                editor_ranges[0][0],
+                editor_ranges[-1][1],
                 clean,
                 add_subtitles=False,
                 output_format="original",
-                keep_ranges=ranges,
+                keep_ranges=editor_ranges,
                 hook_title=None,
                 extend_to_sentence=False,
+                crossfade_ranges=False,
             )
             if not rendered:
                 raise ValueError("Could not prepare the original video")
             metadata = await run_in_thread(make_assets, directory)
+            if cold_open_duration > 0:
+                metadata["coldOpen"] = {
+                    "start": 0.0,
+                    "end": cold_open_duration,
+                }
             transcript = load_cached_transcript_data(source)
-            timed = get_words_for_keep_ranges(transcript, ranges) if transcript else []
-            words = _caption_words_with_timings(
-                (clip.get("text") or "").split(), timed, metadata["duration"]
+            timed = (
+                get_words_for_keep_ranges(
+                    transcript,
+                    editor_ranges,
+                    crossfade=False,
+                )
+                if transcript
+                else []
             )
             duration = metadata["duration"]
+            main_start = cold_open_duration
+            if cold_open_duration > 0 and timed:
+                words = _caption_words_with_timings(
+                    [word["text"] for word in timed],
+                    timed,
+                    duration,
+                )
+            elif cold_open_duration > 0:
+                main_duration = max(0.01, duration - cold_open_duration)
+                words = [
+                    {
+                        **word,
+                        "start": word["start"] + cold_open_duration,
+                        "end": word["end"] + cold_open_duration,
+                    }
+                    for word in _caption_words_with_timings(
+                        (clip.get("text") or "").split(),
+                        [],
+                        main_duration,
+                    )
+                ]
+            else:
+                words = _caption_words_with_timings(
+                    (clip.get("text") or "").split(),
+                    timed,
+                    duration,
+                )
             initial = (
                 EditDocument.model_validate(
                     {
-                        "segments": [{"id": "original", "start": 0, "end": duration}],
+                        "segments": [
+                            {"id": "original", "start": main_start, "end": duration}
+                        ],
                         "framing": {
                             "aspect": "original"
                             if source_settings.get("output_format") == "original"

@@ -100,6 +100,8 @@ CREATE TABLE generated_clips (
     shareability_score INTEGER DEFAULT 0,
     hook_type VARCHAR(50),
     hook_title VARCHAR(200),         -- AI-written on-screen headline
+    cold_open_start FLOAT,           -- Proposed cold-open start in source-video seconds
+    cold_open_end FLOAT,             -- Proposed cold-open end in source-video seconds
 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP

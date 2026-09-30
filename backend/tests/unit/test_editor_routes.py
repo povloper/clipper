@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock
@@ -129,3 +130,84 @@ async def test_failed_enqueue_is_retryable(client, monkeypatch):
     assert response.status_code == 503
     state = (await http.get("/tasks/task/clips/clip/editor")).json()
     assert state["jobs"][0]["status"] == "failed"
+
+
+
+async def test_combine_uses_cold_open_editor_source_ranges(client):
+    # Keep the editor asset source map aligned with [hook][main] ordering.
+    http, service, _doc, _directory = client
+    clips = [
+        {
+            "id": "clip-1",
+            "task_id": "task",
+            "filename": "clip-1.mp4",
+            "cold_open_start": 12.0,
+            "cold_open_end": 13.5,
+        },
+        {
+            "id": "clip-2",
+            "task_id": "task",
+            "filename": "clip-2.mp4",
+            "cold_open_start": None,
+            "cold_open_end": None,
+        },
+    ]
+    service.clip_repo.get_clip_by_id.side_effect = clips
+    service._get_clip_source_ranges = lambda clip: (
+        [(10.0, 15.0)] if clip["id"] == "clip-1" else [(20.0, 25.0)]
+    )
+
+    documents = [
+        EditDocument.model_validate(
+            {
+                "segments": [
+                    {"id": "cold-open", "start": 0, "end": 1.5},
+                    {"id": "original", "start": 1.5, "end": 6.5},
+                ]
+            }
+        ).model_dump(),
+        EditDocument.model_validate(
+            {"segments": [{"id": "original", "start": 0, "end": 5}]}
+        ).model_dump(),
+    ]
+
+    for clip, document, duration in zip(clips, documents, (6.5, 5.0)):
+        directory = editor_dir(
+            service.config.temp_dir,
+            "task",
+            clip["id"],
+            clip["filename"],
+        )
+        atomic_json(directory / "draft.json", {"revision": 0, "document": document})
+        atomic_json(directory / "original.json", document)
+        atomic_json(
+            directory / "asset.json",
+            {
+                "status": "ready",
+                "duration": duration,
+                "width": 1080,
+                "height": 1920,
+                "hasAudio": True,
+            },
+        )
+
+    response = await http.post(
+        "/tasks/task/editor/combine",
+        json={"clip_ids": ["clip-1", "clip-2"]},
+    )
+
+    assert response.status_code == 202
+    anchor = editor_dir(
+        service.config.temp_dir,
+        "task",
+        "clip-1",
+        "clip-1.mp4",
+    )
+    requests = list(anchor.glob("request-*.json"))
+    assert len(requests) == 1
+    payload = json.loads(requests[0].read_text())
+    assert payload["inputs"][0]["ranges"] == [
+        [12.0, 13.5],
+        [10.0, 15.0],
+    ]
+    assert payload["inputs"][1]["ranges"] == [[20.0, 25.0]]
