@@ -40,6 +40,8 @@ def test_system_prompt_enforces_grounding_rules():
     assert "Do not use \"segment\" as an output field. Use \"text\"." in (
         transcript_analysis_system_prompt
     )
+    assert '"cold_open"' in transcript_analysis_system_prompt
+    assert "1-2 seconds long" in transcript_analysis_system_prompt
 
 
 def test_build_transcript_analysis_prompt_requires_transcript_fidelity():
@@ -56,6 +58,8 @@ def test_build_transcript_analysis_prompt_requires_transcript_fidelity():
     assert "Return one valid JSON object and nothing else." in prompt
     assert "No Markdown, headings, bullets, code fences" in prompt
     assert "[00:12 - 00:21] A strong opening line" in prompt
+    assert '"cold_open"' in prompt
+    assert "1-2 second cold_open" in prompt
 
 
 def test_build_transcript_analysis_prompt_mentions_broll_only_when_enabled():
