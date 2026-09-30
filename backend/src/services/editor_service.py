@@ -214,16 +214,34 @@ async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
                 if transcript
                 else []
             )
-            caption_text = (
-                [word["text"] for word in timed]
-                if cold_open_duration > 0 and timed
-                else (clip.get("text") or "").split()
-            )
-            words = _caption_words_with_timings(
-                caption_text, timed, metadata["duration"]
-            )
             duration = metadata["duration"]
             main_start = cold_open_duration
+            if cold_open_duration > 0 and timed:
+                words = _caption_words_with_timings(
+                    [word["text"] for word in timed],
+                    timed,
+                    duration,
+                )
+            elif cold_open_duration > 0:
+                main_duration = max(0.01, duration - cold_open_duration)
+                words = [
+                    {
+                        **word,
+                        "start": word["start"] + cold_open_duration,
+                        "end": word["end"] + cold_open_duration,
+                    }
+                    for word in _caption_words_with_timings(
+                        (clip.get("text") or "").split(),
+                        [],
+                        main_duration,
+                    )
+                ]
+            else:
+                words = _caption_words_with_timings(
+                    (clip.get("text") or "").split(),
+                    timed,
+                    duration,
+                )
             initial = (
                 EditDocument.model_validate(
                     {
