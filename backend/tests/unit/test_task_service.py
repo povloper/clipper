@@ -560,3 +560,26 @@ async def test_merge_rejects_duplicate_ids_before_modifying_clips(isolated_clip_
         await service.merge_clips("task-1", ["clip-1", "clip-1"])
     service.clip_repo.get_clip_by_id.assert_not_awaited()
     service.clip_repo.delete_clip.assert_not_awaited()
+
+
+
+@pytest.mark.asyncio
+async def test_process_task_persists_cold_open_proposal():
+    service = build_task_service()
+    service.video_service.create_single_clip = AsyncMock(
+        return_value={
+            **build_clip_result(),
+            "cold_open_start": 2.0,
+            "cold_open_end": 3.5,
+        }
+    )
+
+    await service.process_task(
+        task_id="task-1",
+        url="https://www.youtube.com/watch?v=demo",
+        source_type="youtube",
+    )
+
+    saved = service.clip_repo.create_clip.await_args.kwargs
+    assert saved["cold_open_start"] == pytest.approx(2.0)
+    assert saved["cold_open_end"] == pytest.approx(3.5)
