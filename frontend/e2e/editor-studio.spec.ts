@@ -428,6 +428,33 @@ test("preview, caption dragging and responsive layout", async ({
   });
 });
 
+test("browser export includes an activated cold open in the rendered duration", async ({
+  page,
+}, info) => {
+  await setup(page, false, true);
+  const segments = page.getByRole("group", { name: "Segments" });
+  await segments
+    .getByRole("button")
+    .filter({ hasText: "Suggested hook" })
+    .click();
+
+  await page.getByRole("button", { name: "Export", exact: true }).click();
+  await page.getByRole("button", { name: /On this device/ }).click();
+  const downloadPromise = page.waitForEvent("download", { timeout: 60000 });
+  await page.getByRole("button", { name: "Export clip", exact: true }).click();
+  const file = info.outputPath("cold-open-browser-export.mp4");
+  await (await downloadPromise).saveAs(file);
+
+  const probe = JSON.parse(
+    execFileSync(
+      "ffprobe",
+      ["-v", "error", "-show_format", "-of", "json", file],
+      { encoding: "utf8" },
+    ),
+  );
+  expect(Number(probe.format.duration)).toBeCloseTo(4, 1);
+});
+
 test("browser export contains edited video and audio through multiple cuts", async ({
   page,
 }, info) => {
