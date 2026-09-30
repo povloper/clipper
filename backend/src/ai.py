@@ -960,6 +960,37 @@ async def get_most_relevant_parts_by_transcript(
 
                 segment.hook_title = sanitize_hook_title(segment.hook_title)
 
+                if segment.cold_open is not None:
+                    try:
+                        cold_open_start = _parse_transcript_timestamp_seconds(
+                            segment.cold_open.start_time
+                        )
+                        cold_open_end = _parse_transcript_timestamp_seconds(
+                            segment.cold_open.end_time
+                        )
+                        cold_open_duration = cold_open_end - cold_open_start
+                        cold_open_valid = (
+                            1 <= cold_open_duration <= 2
+                            and cold_open_start >= start_seconds
+                            and cold_open_end <= end_seconds
+                        )
+                        if not cold_open_valid:
+                            logger.warning(
+                                "Discarding invalid cold-open proposal %s-%s for segment %s-%s",
+                                segment.cold_open.start_time,
+                                segment.cold_open.end_time,
+                                segment.start_time,
+                                segment.end_time,
+                            )
+                            segment.cold_open = None
+                    except (ValueError, IndexError):
+                        logger.warning(
+                            "Discarding cold-open proposal with invalid timestamps for segment %s-%s",
+                            segment.start_time,
+                            segment.end_time,
+                        )
+                        segment.cold_open = None
+
                 validated_segments.append(segment)
                 virality_info = (
                     f", virality={segment.virality.total_score}"
