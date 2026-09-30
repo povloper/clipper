@@ -134,6 +134,7 @@ async def test_failed_enqueue_is_retryable(client, monkeypatch):
 
 
 async def test_combine_uses_cold_open_editor_source_ranges(client):
+    # Keep the editor asset source map aligned with [hook][main] ordering.
     http, service, _doc, _directory = client
     clips = [
         {
