@@ -119,6 +119,7 @@ class VideoService:
             "shareability_score": 0,
             "hook_type": "fallback",
             "hook_title": None,
+            "cold_open": None,
         }
 
     @staticmethod
@@ -319,6 +320,27 @@ class VideoService:
 
             save_clip_source_ranges(clip_path, keep_ranges)
             cleaned_duration = sum(end - start for start, end in keep_ranges)
+
+            cold_open_start = None
+            cold_open_end = None
+            cold_open = segment.get("cold_open")
+            if isinstance(cold_open, dict):
+                try:
+                    proposal_start = parse_timestamp_to_seconds(cold_open["start_time"])
+                    proposal_end = parse_timestamp_to_seconds(cold_open["end_time"])
+                    if (
+                        1 <= proposal_end - proposal_start <= 2
+                        and proposal_start >= start_seconds
+                        and proposal_end <= end_seconds
+                    ):
+                        cold_open_start = proposal_start
+                        cold_open_end = proposal_end
+                except (KeyError, TypeError, ValueError):
+                    logger.warning(
+                        "Ignoring invalid cold-open metadata while rendering clip %s",
+                        clip_index + 1,
+                    )
+
             logger.info(
                 f"Created clip {clip_index + 1}: {cleaned_duration:.1f}s"
             )
@@ -339,6 +361,8 @@ class VideoService:
                 "shareability_score": segment.get("shareability_score", 0),
                 "hook_type": segment.get("hook_type"),
                 "hook_title": segment.get("hook_title"),
+                "cold_open_start": cold_open_start,
+                "cold_open_end": cold_open_end,
                 "keep_ranges": keep_ranges,
             }
         except Exception as e:
@@ -546,6 +570,9 @@ class VideoService:
                     virality = segment.get("virality") or {}
                     if hasattr(virality, "model_dump"):
                         virality = virality.model_dump()
+                    cold_open = segment.get("cold_open")
+                    if hasattr(cold_open, "model_dump"):
+                        cold_open = cold_open.model_dump()
                     segment_payload = {
                         "start_time": segment.get("start_time"),
                         "end_time": segment.get("end_time"),
@@ -559,9 +586,15 @@ class VideoService:
                         "shareability_score": virality.get("shareability_score", 0),
                         "hook_type": virality.get("hook_type"),
                         "hook_title": segment.get("hook_title"),
+                        "cold_open": cold_open,
                     }
                 else:
                     virality = segment.virality.model_dump() if segment.virality else {}
+                    cold_open = (
+                        segment.cold_open.model_dump()
+                        if getattr(segment, "cold_open", None)
+                        else None
+                    )
                     segment_payload = {
                         "start_time": segment.start_time,
                         "end_time": segment.end_time,
@@ -575,6 +608,7 @@ class VideoService:
                         "shareability_score": virality.get("shareability_score", 0),
                         "hook_type": virality.get("hook_type"),
                         "hook_title": getattr(segment, "hook_title", None),
+                        "cold_open": cold_open,
                     }
 
                 segment_payload["text"] = VideoService._ground_segment_text(
