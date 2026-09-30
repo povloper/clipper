@@ -107,6 +107,25 @@ def make_assets(directory: Path):
     }
 
 
+def _build_editor_ranges(ranges, cold_open_start=None, cold_open_end=None):
+    """Build the editor asset timeline without enabling the cold open by default."""
+    editor_ranges = list(ranges)
+    if cold_open_start is None or cold_open_end is None:
+        return editor_ranges, 0.0
+
+    try:
+        start = float(cold_open_start)
+        end = float(cold_open_end)
+    except (TypeError, ValueError):
+        return editor_ranges, 0.0
+
+    duration = end - start
+    if start < 0 or not 1 <= duration <= 2:
+        return editor_ranges, 0.0
+
+    return [(start, end), *editor_ranges], duration
+
+
 async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
     from ..database import AsyncSessionLocal
     from .task_service import TaskService
@@ -135,16 +154,11 @@ async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
             ):
                 raise ValueError("The original clip changed. Reopen the editor.")
             ranges = service._get_clip_source_ranges(clip)
-            cold_open_start = clip.get("cold_open_start")
-            cold_open_end = clip.get("cold_open_end")
-            cold_open_duration = 0.0
-            editor_ranges = list(ranges)
-            if cold_open_start is not None and cold_open_end is not None:
-                cold_open_start = float(cold_open_start)
-                cold_open_end = float(cold_open_end)
-                if 1 <= cold_open_end - cold_open_start <= 2:
-                    cold_open_duration = cold_open_end - cold_open_start
-                    editor_ranges = [(cold_open_start, cold_open_end), *ranges]
+            editor_ranges, cold_open_duration = _build_editor_ranges(
+                ranges,
+                clip.get("cold_open_start"),
+                clip.get("cold_open_end"),
+            )
             source_url, source_type = task.get("source_url"), task.get("source_type")
             mode = task.get("processing_mode") or service.config.default_processing_mode
             cache = await service.cache_repo.get_cache(
