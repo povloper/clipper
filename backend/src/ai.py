@@ -257,7 +257,7 @@ OUTPUT CONTRACT:
 - Return valid JSON only. Do not output Markdown, headings, bullets, prose, code fences, explanations, or commentary outside the JSON object.
 - The top-level JSON object must include: "most_relevant_segments", "summary", and "key_topics".
 - Set "broll_opportunities" to null when B-roll was not requested.
-- Each item in "most_relevant_segments" must include: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", and "hook_title".
+- Each item in "most_relevant_segments" must include: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", "hook_title", and "cold_open".
 - Do not use "segment" as an output field. Use "text".
 - "virality" must include: "hook_score", "engagement_score", "value_score", "shareability_score", "total_score", "hook_type", and "virality_reasoning".
 - Every returned segment must be 15-60 seconds long. Prefer 25-50 seconds.
@@ -343,6 +343,16 @@ HOOK TYPES to identify:
 - "story": Starts with narrative/anecdote
 - "contrast": Before/after or problem/solution framing
 - "none": No clear hook pattern
+
+COLD OPEN PROPOSAL ("cold_open" per segment):
+- Pick one especially potent visual/spoken moment from inside the selected segment that can play before the main clip as a cold open
+- The cold open must be 1-2 seconds long
+- It must be fully contained within the selected segment: cold_open.start_time >= start_time and cold_open.end_time <= end_time
+- It must refer to a real moment from the provided transcript range; do not invent dialogue or use material outside the segment
+- Prefer a surprising phrase, emotional reaction, punchline, reveal, strong claim, or high-energy beat that creates immediate curiosity
+- This is only an editable proposal. It is NOT part of the initial rendered clip and must not change the segment's start_time/end_time
+- Return "cold_open": {"start_time": "MM:SS", "end_time": "MM:SS"} for a usable proposal, or null if there is no credible 1-2 second hook
+- cold_open timestamps may use second-level positions inside a transcript span; unlike the main segment boundaries, they do not need to match a transcript line boundary exactly
 
 B-ROLL OPPORTUNITIES:
 Identify 2-4 moments in each segment where B-roll footage could enhance the video:
@@ -545,7 +555,8 @@ Follow this workflow:
 1. Read the transcript as a sequence of timestamped spans.
 2. Select only contiguous ranges that already exist in the transcript.
 3. Prefer moments with a strong hook, clear payoff, emotional charge, or concrete value.
-4. For each chosen segment, use the earliest timestamp in the selected range as start_time and the latest timestamp in the selected range as end_time.{broll_instruction}
+4. For each chosen segment, use the earliest timestamp in the selected range as start_time and the latest timestamp in the selected range as end_time.
+5. For each chosen segment, propose a 1-2 second cold_open from a real moment inside that same selected range.{broll_instruction}
 
 Selection target:
 - Choose 2-5 segments total.
@@ -569,8 +580,10 @@ JSON-only output requirements:
 - Return one valid JSON object and nothing else.
 - No Markdown, headings, bullets, code fences, or explanatory text outside JSON.
 - Top-level keys: "most_relevant_segments", "summary", "key_topics", "broll_opportunities".{' Set "broll_opportunities" to null.' if not include_broll else ''}
-- Segment keys: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", "hook_title".
+- Segment keys: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", "hook_title", "cold_open".
 - "hook_title" is a 3-9 word plain-text headline for the clip, grounded in the segment (no hashtags, emojis, or quotes).
+- "cold_open" must be null or an object with exactly "start_time" and "end_time".
+- A non-null cold_open must last 1-2 seconds and remain fully inside the segment.
 - Virality keys: "hook_score", "engagement_score", "value_score", "shareability_score", "total_score", "hook_type", "virality_reasoning".
 - Do not return segments shorter than {MIN_ACCEPTED_CLIP_SECONDS} seconds or longer than {MAX_ACCEPTED_CLIP_SECONDS} seconds.
 
