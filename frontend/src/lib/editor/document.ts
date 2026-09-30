@@ -60,6 +60,7 @@ export interface EditorState {
   fps: number;
   hasAudio: boolean;
   waveform: number[];
+  coldOpen?: { start: number; end: number };
   draft: { revision: number; document: EditDocument };
   original: EditDocument;
   jobs: ExportJob[];
