@@ -185,6 +185,11 @@ async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
             if not rendered:
                 raise ValueError("Could not prepare the original video")
             metadata = await run_in_thread(make_assets, directory)
+            if cold_open_duration > 0:
+                metadata["coldOpen"] = {
+                    "start": 0.0,
+                    "end": cold_open_duration,
+                }
             transcript = load_cached_transcript_data(source)
             timed = (
                 get_words_for_keep_ranges(
