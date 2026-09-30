@@ -137,6 +137,13 @@ def _default_virality_analysis() -> ViralityAnalysis:
     return ViralityAnalysis()
 
 
+class ColdOpenProposal(BaseModel):
+    """Editable visual cold-open proposal for a selected clip."""
+
+    start_time: str = Field(description="Cold-open start timestamp in MM:SS format")
+    end_time: str = Field(description="Cold-open end timestamp in MM:SS format")
+
+
 class TranscriptSegment(BaseModel):
     """Represents a relevant segment of transcript with precise timing and virality analysis."""
 
@@ -170,6 +177,14 @@ class TranscriptSegment(BaseModel):
         description=(
             "Short punchy on-screen title for the clip (3-9 words). Grounded in "
             "the segment content, no hashtags, no emojis, no surrounding quotes."
+        ),
+    )
+    cold_open: Optional[ColdOpenProposal] = Field(
+        default=None,
+        description=(
+            "Optional 1-2 second visual cold-open proposal selected from within "
+            "this segment. It is stored as editable metadata and is not burned "
+            "into the initially generated clip."
         ),
     )
 
