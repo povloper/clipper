@@ -15,8 +15,11 @@ import { Label } from "@/components/ui/label";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import {
+  addColdOpen,
   clamp,
+  COLD_OPEN_SEGMENT_ID,
   editDuration,
+  removeColdOpen,
   splitSegment,
   timecode,
   uid,
@@ -49,18 +52,16 @@ export function Timeline({
   const [zoom, setZoom] = useState(1);
   const active = doc.segments[index] ?? doc.segments[0];
   const coldOpen = asset.coldOpen;
-  const coldOpenIndex = doc.segments.findIndex((segment) => segment.id === "cold-open");
+  const coldOpenIndex = doc.segments.findIndex(
+    (segment) => segment.id === COLD_OPEN_SEGMENT_ID,
+  );
   const coldOpenActive = coldOpenIndex >= 0;
-  const mainSegments = doc.segments.filter((segment) => segment.id !== "cold-open");
+  const mainSegments = doc.segments.filter(
+    (segment) => segment.id !== COLD_OPEN_SEGMENT_ID,
+  );
   const addColdOpen = () => {
     if (!coldOpen || coldOpenActive) return;
-    update((d) => ({
-      ...d,
-      segments: [
-        { id: "cold-open", start: coldOpen.start, end: coldOpen.end },
-        ...d.segments,
-      ],
-    }));
+    update((d) => addColdOpen(d, coldOpen));
     select(0);
     seek(coldOpen.start);
   };
@@ -83,8 +84,8 @@ export function Timeline({
   const move = (direction: number) => {
     const target = index + direction;
     if (target < 0 || target >= doc.segments.length) return;
-    if (active.id === "cold-open") return;
-    if (direction < 0 && doc.segments[target]?.id === "cold-open") return;
+    if (active.id === COLD_OPEN_SEGMENT_ID) return;
+    if (direction < 0 && doc.segments[target]?.id === COLD_OPEN_SEGMENT_ID) return;
     update((d) => {
       const segments = [...d.segments];
       [segments[index], segments[target]] = [segments[target], segments[index]];
@@ -93,7 +94,7 @@ export function Timeline({
     select(target);
   };
   const canSplit =
-    active.id !== "cold-open" &&
+    active.id !== COLD_OPEN_SEGMENT_ID &&
     currentTime > active.start + 0.04 &&
     currentTime < active.end - 0.04;
   return (
@@ -316,7 +317,7 @@ export function Timeline({
           ))}
           {doc.segments.map((s, i) => {
             const label =
-              s.id === "cold-open"
+              s.id === COLD_OPEN_SEGMENT_ID
                 ? "Hook"
                 : s.id === "original"
                   ? "Main clip"
@@ -350,8 +351,8 @@ export function Timeline({
             size="icon-sm"
             disabled={
               index === 0 ||
-              active.id === "cold-open" ||
-              doc.segments[index - 1]?.id === "cold-open"
+              active.id === COLD_OPEN_SEGMENT_ID ||
+              doc.segments[index - 1]?.id === COLD_OPEN_SEGMENT_ID
             }
             onClick={() => move(-1)}
           >
@@ -361,7 +362,7 @@ export function Timeline({
             label="Move segment later"
             size="icon-sm"
             disabled={
-              active.id === "cold-open" || index >= doc.segments.length - 1
+              active.id === COLD_OPEN_SEGMENT_ID || index >= doc.segments.length - 1
             }
             onClick={() => move(1)}
           >
@@ -370,7 +371,7 @@ export function Timeline({
           <ToolButton
             label="Duplicate selected segment"
             size="icon-sm"
-            disabled={active.id === "cold-open"}
+            disabled={active.id === COLD_OPEN_SEGMENT_ID}
             onClick={() =>
               update((d) => ({
                 ...d,
@@ -390,13 +391,17 @@ export function Timeline({
             className="hover:text-destructive"
             disabled={
               doc.segments.length === 1 ||
-              (active.id !== "cold-open" && mainSegments.length === 1)
+              (active.id !== COLD_OPEN_SEGMENT_ID && mainSegments.length === 1)
             }
             onClick={() => {
-              update((d) => ({
-                ...d,
-                segments: d.segments.filter((s) => s.id !== active.id),
-              }));
+              update((d) =>
+                active.id === COLD_OPEN_SEGMENT_ID
+                  ? removeColdOpen(d)
+                  : {
+                      ...d,
+                      segments: d.segments.filter((s) => s.id !== active.id),
+                    },
+              );
               select(Math.max(0, index - 1));
             }}
           >
