@@ -156,6 +156,8 @@ jobs:
         run: cd frontend && pnpm exec playwright install --with-deps
       - name: Run Playwright smoke tests
         run: cd frontend && pnpm run test:e2e
+      - name: Run isolated editor and polish browser tests
+        run: cd frontend && pnpm run test:polish
       - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@v4
