@@ -20,10 +20,14 @@ SEGMENT_TEXT = (
 @pytest.mark.parametrize(
     ("cold_open", "expected"),
     [
+        ({"start_time": "00:10", "end_time": "00:11"}, ("00:10", "00:11")),
         ({"start_time": "00:10", "end_time": "00:12"}, ("00:10", "00:12")),
         ({"start_time": "00:10", "end_time": "00:13"}, None),
+        ({"start_time": "00:10", "end_time": "00:10"}, None),
+        ({"start_time": "00:12", "end_time": "00:10"}, None),
         ({"start_time": "00:29", "end_time": "00:31"}, None),
         ({"start_time": "bad", "end_time": "00:12"}, None),
+        (None, None),
     ],
 )
 @pytest.mark.asyncio
