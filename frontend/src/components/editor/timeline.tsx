@@ -314,7 +314,7 @@ export function Timeline({
                 {timecode(coldOpen.start)} – {timecode(coldOpen.end)}
               </span>
             </button>
-          ))}
+          )}
           {doc.segments.map((s, i) => {
             const label =
               s.id === COLD_OPEN_SEGMENT_ID
