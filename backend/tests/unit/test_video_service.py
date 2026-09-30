@@ -83,6 +83,7 @@ async def test_process_video_complete_uses_fallback_when_ai_selects_no_segments(
             "shareability_score": 0,
             "hook_type": "fallback",
             "hook_title": None,
+            "cold_open": None,
         }
     ]
     analysis = json.loads(result["analysis_json"])
