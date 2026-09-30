@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import {
-  addColdOpen,
+  addColdOpen as addColdOpenSegment,
   clamp,
   COLD_OPEN_SEGMENT_ID,
   editDuration,
@@ -59,9 +59,9 @@ export function Timeline({
   const mainSegments = doc.segments.filter(
     (segment) => segment.id !== COLD_OPEN_SEGMENT_ID,
   );
-  const addColdOpen = () => {
+  const activateColdOpen = () => {
     if (!coldOpen || coldOpenActive) return;
-    update((d) => addColdOpen(d, coldOpen));
+    update((d) => addColdOpenSegment(d, coldOpen));
     select(0);
     seek(coldOpen.start);
   };
@@ -304,7 +304,7 @@ export function Timeline({
           {coldOpen && !coldOpenActive && (
             <button
               className="rounded-md border border-dashed bg-background px-2.5 py-1.5 text-left text-xs shadow-xs transition-colors outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50"
-              onClick={addColdOpen}
+              onClick={activateColdOpen}
             >
               <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                 <Plus className="size-3" aria-hidden />
