@@ -227,3 +227,89 @@ async def test_admin_runtime_settings_never_expose_encrypted_or_plaintext_values
         json={"updates": {"NOT_A_REAL_SETTING": "secret"}},
     )
     assert invalid.status_code == 400
+
+
+
+@pytest.mark.asyncio
+async def test_invalid_api_key_does_not_fallback_to_valid_signed_session(
+    client, db_session
+):
+    user = await create_user(
+        db_session,
+        user_id="api-precedence-user",
+        email="api-precedence-user@example.com",
+    )
+    headers = {
+        **signed_headers(user["id"]),
+        "authorization": "Bearer sk_invalid-key",
+    }
+
+    response = await client.get("/tasks/", headers=headers)
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid or revoked API key"
+
+
+@pytest.mark.asyncio
+async def test_only_completed_tasks_can_be_shared(client, db_session):
+    owner = await create_user(
+        db_session,
+        user_id="share-state-owner",
+        email="share-state-owner@example.com",
+    )
+    source = await create_source(db_session, title="Still processing")
+    task = await create_task(
+        db_session,
+        user_id=owner["id"],
+        source_id=source["id"],
+        status="processing",
+    )
+
+    response = await client.post(
+        f"/tasks/{task['id']}/share",
+        headers=signed_headers(owner["id"]),
+    )
+
+    assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_public_share_does_not_expose_cold_open_source_timestamps(
+    client, db_session
+):
+    owner = await create_user(
+        db_session,
+        user_id="share-cold-open-owner",
+        email="share-cold-open-owner@example.com",
+    )
+    source = await create_source(db_session, title="Cold open share")
+    task = await create_task(
+        db_session,
+        user_id=owner["id"],
+        source_id=source["id"],
+        status="completed",
+    )
+    clip = await create_clip(db_session, task_id=task["id"])
+    await db_session.execute(
+        text(
+            """
+            UPDATE generated_clips
+            SET cold_open_start = 12.5, cold_open_end = 14.0
+            WHERE id = :clip_id
+            """
+        ),
+        {"clip_id": clip["id"]},
+    )
+    await db_session.commit()
+
+    share = await client.post(
+        f"/tasks/{task['id']}/share",
+        headers=signed_headers(owner["id"]),
+    )
+    token = share.json()["share_token"]
+    public = await client.get(f"/tasks/shared/{token}")
+
+    assert public.status_code == 200
+    public_clip = public.json()["clips"][0]
+    assert "cold_open_start" not in public_clip
+    assert "cold_open_end" not in public_clip
