@@ -144,6 +144,8 @@ jobs:
           node-version: "20"
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Install media test dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Install backend dependencies
         run: cd backend && uv sync --all-groups
       - name: Install frontend dependencies
