@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Copy,
+  Plus,
   Scissors,
   Trash2,
   ZoomIn,
@@ -47,6 +48,22 @@ export function Timeline({
 }: Props) {
   const [zoom, setZoom] = useState(1);
   const active = doc.segments[index] ?? doc.segments[0];
+  const coldOpen = asset.coldOpen;
+  const coldOpenIndex = doc.segments.findIndex((segment) => segment.id === "cold-open");
+  const coldOpenActive = coldOpenIndex >= 0;
+  const mainSegments = doc.segments.filter((segment) => segment.id !== "cold-open");
+  const addColdOpen = () => {
+    if (!coldOpen || coldOpenActive) return;
+    update((d) => ({
+      ...d,
+      segments: [
+        { id: "cold-open", start: coldOpen.start, end: coldOpen.end },
+        ...d.segments,
+      ],
+    }));
+    select(0);
+    seek(coldOpen.start);
+  };
   const setRange = (start: number, end: number) =>
     update(
       (d) => ({
@@ -66,6 +83,8 @@ export function Timeline({
   const move = (direction: number) => {
     const target = index + direction;
     if (target < 0 || target >= doc.segments.length) return;
+    if (active.id === "cold-open") return;
+    if (direction < 0 && doc.segments[target]?.id === "cold-open") return;
     update((d) => {
       const segments = [...d.segments];
       [segments[index], segments[target]] = [segments[target], segments[index]];
@@ -74,7 +93,9 @@ export function Timeline({
     select(target);
   };
   const canSplit =
-    currentTime > active.start + 0.04 && currentTime < active.end - 0.04;
+    active.id !== "cold-open" &&
+    currentTime > active.start + 0.04 &&
+    currentTime < active.end - 0.04;
   return (
     <Panel aria-label="Clip timeline">
       <PanelHeader
@@ -279,33 +300,59 @@ export function Timeline({
           role="group"
           aria-label="Segments"
         >
-          {doc.segments.map((s, i) => (
+          {coldOpen && !coldOpenActive && (
             <button
-              key={s.id}
-              className={cn(
-                "rounded-md border bg-background px-2.5 py-1.5 text-left text-xs shadow-xs transition-colors outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50",
-                i === index && "border-primary ring-1 ring-primary",
-              )}
-              aria-pressed={i === index}
-              onClick={() => {
-                select(i);
-                seek(s.start);
-              }}
+              className="rounded-md border border-dashed bg-background px-2.5 py-1.5 text-left text-xs shadow-xs transition-colors outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              onClick={addColdOpen}
             >
-              <span className="block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                Segment {i + 1}
+              <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                <Plus className="size-3" aria-hidden />
+                Suggested hook
               </span>
               <span className="block tabular-nums">
-                {timecode(s.start)} – {timecode(s.end)}
+                {timecode(coldOpen.start)} – {timecode(coldOpen.end)}
               </span>
             </button>
           ))}
+          {doc.segments.map((s, i) => {
+            const label =
+              s.id === "cold-open"
+                ? "Hook"
+                : s.id === "original"
+                  ? "Main clip"
+                  : `Segment ${i + 1}`;
+            return (
+              <button
+                key={s.id}
+                className={cn(
+                  "rounded-md border bg-background px-2.5 py-1.5 text-left text-xs shadow-xs transition-colors outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50",
+                  i === index && "border-primary ring-1 ring-primary",
+                )}
+                aria-pressed={i === index}
+                onClick={() => {
+                  select(i);
+                  seek(s.start);
+                }}
+              >
+                <span className="block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {label}
+                </span>
+                <span className="block tabular-nums">
+                  {timecode(s.start)} – {timecode(s.end)}
+                </span>
+              </button>
+            );
+          })}
         </div>
         <div className="flex items-center">
           <ToolButton
             label="Move segment earlier"
             size="icon-sm"
-            disabled={index === 0}
+            disabled={
+              index === 0 ||
+              active.id === "cold-open" ||
+              doc.segments[index - 1]?.id === "cold-open"
+            }
             onClick={() => move(-1)}
           >
             <ArrowLeft />
@@ -313,7 +360,9 @@ export function Timeline({
           <ToolButton
             label="Move segment later"
             size="icon-sm"
-            disabled={index >= doc.segments.length - 1}
+            disabled={
+              active.id === "cold-open" || index >= doc.segments.length - 1
+            }
             onClick={() => move(1)}
           >
             <ArrowRight />
@@ -321,6 +370,7 @@ export function Timeline({
           <ToolButton
             label="Duplicate selected segment"
             size="icon-sm"
+            disabled={active.id === "cold-open"}
             onClick={() =>
               update((d) => ({
                 ...d,
@@ -338,7 +388,10 @@ export function Timeline({
             label="Remove selected segment"
             size="icon-sm"
             className="hover:text-destructive"
-            disabled={doc.segments.length === 1}
+            disabled={
+              doc.segments.length === 1 ||
+              (active.id !== "cold-open" && mainSegments.length === 1)
+            }
             onClick={() => {
               update((d) => ({
                 ...d,
