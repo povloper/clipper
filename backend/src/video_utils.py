@@ -249,6 +249,7 @@ def create_optimized_clip(
     keep_ranges: Optional[List[Tuple[float, float]]] = None,
     hook_title: Optional[str] = None,
     extend_to_sentence: bool = True,
+    crossfade_ranges: bool = True,
 ) -> bool:
     """Create clip with optional subtitles. output_format: 'vertical' (9:16) or 'original' (keep source size)."""
     try:
@@ -309,6 +310,7 @@ def create_optimized_clip(
                 video_path,
                 effective_keep_ranges,
                 source_clip_path,
+                crossfade=crossfade_ranges,
             ):
                 raise RuntimeError("ffmpeg source-range render failed")
 
