@@ -19,7 +19,7 @@ from ...editor_document import (
     editor_lock,
     save_document,
 )
-from ...services.editor_service import read_state
+from ...services.editor_service import _build_editor_ranges, read_state
 from ...services.task_service import TaskService
 from ...repositories.edit_transaction import task_edit_transaction
 from ...workers.job_queue import JobQueue
@@ -284,13 +284,18 @@ async def combine(task_id: str, request: Request, db: AsyncSession = Depends(get
         state = read_state(directory)
         if state["status"] != "ready":
             raise HTTPException(409, "Prepare each selected clip before combining")
+        editor_ranges, _ = _build_editor_ranges(
+            service._get_clip_source_ranges(clip),
+            clip.get("cold_open_start"),
+            clip.get("cold_open_end"),
+        )
         entries.append(
             {
                 "id": clip_id,
                 "filename": clip["filename"],
                 "document": state["draft"]["document"],
                 "state": {k: state[k] for k in ("width", "height", "hasAudio")},
-                "ranges": service._get_clip_source_ranges(clip),
+                "ranges": editor_ranges,
             }
         )
     await db.close()
