@@ -4,6 +4,12 @@ import { mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { draft } from "../src/lib/editor/document.test-fixture";
 
+type ExportRequest = {
+  document: {
+    segments: Array<{ id: string; start: number; end: number }>;
+  };
+};
+
 const generation = {
   id: "one",
   user_id: "user",
@@ -300,16 +306,16 @@ test("background export omits an inactive cold open proposal", async ({
   page,
 }) => {
   await setup(page, false, true);
-  let request: any;
+  let request: ExportRequest | undefined;
   await page.route("**/editor/exports", (r) => {
-    request = r.request().postDataJSON();
+    request = r.request().postDataJSON() as ExportRequest;
     return r.fulfill({ json: { id: "job", status: "queued", progress: 0 } });
   });
 
   await page.getByRole("button", { name: "Export", exact: true }).click();
   await page.getByRole("button", { name: "Export clip", exact: true }).click();
   await expect.poll(() => request).toBeTruthy();
-  expect(request.document.segments).toEqual([
+  expect(request?.document.segments).toEqual([
     { id: "original", start: 1, end: 4 },
   ]);
 });
@@ -324,16 +330,16 @@ test("background export includes the cold open after activation", async ({
     .filter({ hasText: "Suggested hook" })
     .click();
 
-  let request: any;
+  let request: ExportRequest | undefined;
   await page.route("**/editor/exports", (r) => {
-    request = r.request().postDataJSON();
+    request = r.request().postDataJSON() as ExportRequest;
     return r.fulfill({ json: { id: "job", status: "queued", progress: 0 } });
   });
 
   await page.getByRole("button", { name: "Export", exact: true }).click();
   await page.getByRole("button", { name: "Export clip", exact: true }).click();
   await expect.poll(() => request).toBeTruthy();
-  expect(request.document.segments).toEqual([
+  expect(request?.document.segments).toEqual([
     { id: "cold-open", start: 0, end: 1 },
     { id: "original", start: 1, end: 4 },
   ]);
@@ -367,7 +373,7 @@ test("background export sends the complete edited document", async ({
   await setup(page);
   let request: Record<string, unknown> | undefined;
   await page.route("**/editor/exports", (r) => {
-    request = r.request().postDataJSON();
+    request = r.request().postDataJSON() as ExportRequest;
     return r.fulfill({ json: { id: "job", status: "queued", progress: 0 } });
   });
   await page.getByLabel("Word 1", { exact: true }).fill("Edited");
